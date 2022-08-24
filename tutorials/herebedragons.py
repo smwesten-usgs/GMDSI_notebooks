@@ -515,7 +515,7 @@ def add_ppoints(tmp_d='freyberg_mf6'):
     pst.write(os.path.join(tmp_d, 'freyberg_pp.pst'))
     return print("new control file: 'freyberg_pp.pst'")
 
-def intertive_sv_vec_plot(inpst, U):
+def interactive_sv_vec_plot(inpst, U):
     from ipywidgets import interact, interactive, fixed, interact_manual
     import ipywidgets as widgets
     def SV_bars(SV=1,):
@@ -525,7 +525,9 @@ def intertive_sv_vec_plot(inpst, U):
         plt.xlim([0,inpst.npar_adj+1])
         plt.xticks(list(range(inpst.npar_adj+1)))
         plt.title('Singular vector showing parameter contributions to singular vector #{0}'.format(SV))
-        plt.gca().set_xticklabels(inpst.parameter_data['parnme'].values, rotation=90);
+        plt.gca().set_xticks(range(U.shape[0]))
+        plt.gca().set_xticklabels(
+            inpst.parameter_data.loc[inpst.parameter_data.partrans != 'fixed']['parnme'].values, rotation=90);
         return
     return interact(SV_bars, SV=widgets.widgets.IntSlider(
     value=1, min=1, max=20, step=1, description='Number SVs:',
