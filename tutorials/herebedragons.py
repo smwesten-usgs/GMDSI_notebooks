@@ -328,11 +328,20 @@ def prep_pest(tmp_d):
     obs.loc[:,"obgnme"] = obs.obsnme.apply(lambda x: x.split(':')[0])
     obs.loc['part_time',"obgnme"] = 'particle'
 
-    with open(os.path.join(tmp_d, 'runmodel.bat'), 'w+') as f:
-        f.write('mf6\n')
-        f.write('mp7 freyberg_mp.mpsim')
+    if 'window' in platform.platform().lower():
+        with open(os.path.join(tmp_d, 'runmodel.bat'), 'w+') as f:
+            f.write('mf6\n')
+            f.write('mp7 freyberg_mp.mpsim')
 
-    pst.model_command = 'runmodel.bat'
+        pst.model_command = 'runmodel.bat'
+    else:
+        with open(os.path.join(tmp_d, 'runmodel.sh'), 'w+') as f:
+            f.write('#!/bin/sh \n')
+            f.write('./mf6\n')
+            f.write('./mp7 freyberg_mp.mpsim')
+        os.system(f'chmod +x {os.path.join(tmp_d, "runmodel.sh")}')
+        pst.model_command = './runmodel.sh'
+        
     pst.control_data.noptmax=0
     pst.pestpp_options['forecasts'] = ['headwater:4383.5','tailwater:4383.5','trgw-0-9-1:4383.5', 'part_time']
 
