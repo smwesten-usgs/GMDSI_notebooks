@@ -268,6 +268,10 @@ def run_notebook(nb_path):
         patch_ies_notebook(nb_path)
     if nb_path.name == "freyberg_glm_2.ipynb":
         patch_noptmax(nb_path, 1)
+    if nb_path.name in ("freyberg_sqp_1.ipynb", "freyberg_sqp_2.ipynb"):
+        # pestpp-sqp runs are slow on the Windows/macOS runners; 20 iterations
+        # overran the 1800s per-cell timeout, so cap at 3 for CI.
+        patch_noptmax(nb_path, 3)
     patch_overdue_giveup_fac(nb_path)
 
     result = subprocess.run(
