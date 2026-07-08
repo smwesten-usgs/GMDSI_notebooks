@@ -8,6 +8,8 @@ Usage:
 Notebooks within each section are sorted and run sequentially.
 Sections are run in the order given on the command line.
 """
+import os
+import platform
 import subprocess
 import sys
 import time
@@ -17,9 +19,11 @@ TUTORIALS = Path(__file__).resolve().parent.parent / "tutorials"
 TIMEOUT = 1800  # 30 minutes per notebook
 
 # Sections and individual notebooks to skip during testing.
+# NB: part2_08_opt is NOT skipped - the part2_08_sqp notebooks reuse its template
+# directories, so the opt notebooks must run first (sections run in sorted order,
+# and "part2_08_opt" sorts before "part2_08_sqp").
 SKIP_SECTIONS = {
     "part2_07_da",
-    "part2_08_opt",
     "part2_09_mou",
 }
 SKIP_NOTEBOOKS = {
@@ -33,6 +37,23 @@ SKIP_NOTEBOOKS = {
     "freyberg_ies_2_localization.ipynb",
     "freyberg_ies_3_restarting.ipynb",
 }
+
+# Response-matrix / Jacobian builders (and their dependents) are the most expensive
+# notebooks and run much slower on the macOS and Windows GitHub Actions runners, so we
+# skip them there and rely on the Ubuntu job for coverage.  freyberg_fosm_and_dataworth
+# is included because it loads the prior covariance from master_glm_1.
+SKIP_ON_MAC_WIN = {
+    "freyberg_glm_1.ipynb",
+    "freyberg_glm_2.ipynb",
+    "freyberg_glm_response_surface.ipynb",
+    "freyberg_glm_response_surface_ies.ipynb",
+    "freyberg_fosm_and_dataworth.ipynb",
+}
+# GitHub Actions sets RUNNER_OS; fall back to platform detection for local runs.
+_RUNNER_OS = os.environ.get("RUNNER_OS", "")
+IS_MAC_WIN = _RUNNER_OS in ("Windows", "macOS") or (
+    not _RUNNER_OS and platform.system() in ("Darwin", "Windows")
+)
 
 # Ordering within sections where it matters.
 # Keys are section directory prefixes; values are ordered notebook filenames.
@@ -115,6 +136,8 @@ def get_notebooks(section_dir):
             nb for nb in section_dir.glob("*.ipynb")
             if nb.name not in SKIP_NOTEBOOKS
         )
+    if IS_MAC_WIN:
+        nbs = [nb for nb in nbs if nb.name not in SKIP_ON_MAC_WIN]
     return nbs
 
 
@@ -152,6 +175,35 @@ def patch_ies_notebook(nb_path):
         with open(nb_path, "w", encoding="utf-8") as f:
             json.dump(nb, f, indent=1)
         print(f"  Patched IES settings in {nb_path.name}")
+    return changed
+
+
+def patch_noptmax(nb_path, value):
+    """Set positive noptmax assignments to `value` (leaving 0 and negative values,
+    e.g. -1/-2 Jacobian-only runs, untouched). Used to shorten expensive GLM runs
+    in CI. Returns True if the notebook was changed."""
+    import json
+    import re
+    with open(nb_path, "r", encoding="utf-8") as f:
+        nb = json.load(f)
+    changed = False
+    for cell in nb["cells"]:
+        if cell["cell_type"] != "code":
+            continue
+        new_source = []
+        for line in cell["source"]:
+            orig = line
+            if "noptmax" in line and "=" in line and not line.lstrip().startswith("#"):
+                line = re.sub(r'(noptmax\s*=\s*)([1-9]\d*)',
+                              r'\g<1>{0}'.format(value), line)
+            if line != orig:
+                changed = True
+            new_source.append(line)
+        cell["source"] = new_source
+    if changed:
+        with open(nb_path, "w", encoding="utf-8") as f:
+            json.dump(nb, f, indent=1)
+        print(f"  Set noptmax={value} in {nb_path.name}")
     return changed
 
 
@@ -214,6 +266,12 @@ def run_notebook(nb_path):
     backup = nb_path.read_bytes()
     if "part2_06_ies" in str(nb_path):
         patch_ies_notebook(nb_path)
+    if nb_path.name == "freyberg_glm_2.ipynb":
+        patch_noptmax(nb_path, 1)
+    if nb_path.name in ("freyberg_sqp_1.ipynb", "freyberg_sqp_2.ipynb"):
+        # pestpp-sqp runs are slow on the Windows/macOS runners; 20 iterations
+        # overran the 1800s per-cell timeout, so cap at 3 for CI.
+        patch_noptmax(nb_path, 3)
     patch_overdue_giveup_fac(nb_path)
 
     result = subprocess.run(
