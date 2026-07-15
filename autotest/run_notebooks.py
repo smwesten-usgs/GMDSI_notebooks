@@ -109,7 +109,7 @@ SECTION_ORDER = {
 PART1_ORDER = [
     "part1_01", "part1_02", "part1_03", "part1_04", "part1_05",
     "part1_06", "part1_07", "part1_08", "part1_09", "part1_10",
-    "part1_11", "part1_12",
+    "part1_11", "part1_12", "part1_13",
 ]
 
 
@@ -175,6 +175,49 @@ def patch_ies_notebook(nb_path):
         with open(nb_path, "w", encoding="utf-8") as f:
             json.dump(nb, f, indent=1)
         print(f"  Patched IES settings in {nb_path.name}")
+    return changed
+
+
+def patch_part1_ies_notebook(nb_path):
+    """Patch the part1 basic-ies notebook to run cheaply in CI: cap ensemble size at
+    20 realizations (both the gaussian-draw `num_reals=` and `ies_num_reals`) and cap
+    positive noptmax at 2 iterations (leaving 0/1 and any negative values untouched).
+    Returns True if the notebook was changed."""
+    import json
+    import re
+    with open(nb_path, "r", encoding="utf-8") as f:
+        nb = json.load(f)
+
+    def cap_noptmax(m):
+        return m.group(1) + (m.group(2) if int(m.group(2)) <= 2 else "2")
+
+    changed = False
+    for cell in nb["cells"]:
+        if cell["cell_type"] != "code":
+            continue
+        new_source = []
+        for line in cell["source"]:
+            orig = line
+            if line.lstrip().startswith("#"):
+                new_source.append(line)
+                continue
+            # ies_num_reals = N  and  num_reals=N (gaussian draw) -> 20
+            if "ies_num_reals" in line and "=" in line:
+                line = re.sub(r'(ies_num_reals["\']?\s*[\])]?\s*=\s*)\d+',
+                              r'\g<1>20', line)
+            elif "num_reals" in line and "=" in line:
+                line = re.sub(r'(num_reals\s*=\s*)\d+', r'\g<1>20', line)
+            # positive noptmax -> capped at 2 (0/1 and negatives left alone)
+            if "noptmax" in line and "=" in line:
+                line = re.sub(r'(noptmax\s*=\s*)(\d+)', cap_noptmax, line)
+            if line != orig:
+                changed = True
+            new_source.append(line)
+        cell["source"] = new_source
+    if changed:
+        with open(nb_path, "w", encoding="utf-8") as f:
+            json.dump(nb, f, indent=1)
+        print(f"  Patched part1 IES settings in {nb_path.name}")
     return changed
 
 
@@ -266,6 +309,8 @@ def run_notebook(nb_path):
     backup = nb_path.read_bytes()
     if "part2_06_ies" in str(nb_path):
         patch_ies_notebook(nb_path)
+    if "part1_13" in str(nb_path):
+        patch_part1_ies_notebook(nb_path)
     if nb_path.name == "freyberg_glm_2.ipynb":
         patch_noptmax(nb_path, 1)
     if nb_path.name in ("freyberg_sqp_1.ipynb", "freyberg_sqp_2.ipynb"):
